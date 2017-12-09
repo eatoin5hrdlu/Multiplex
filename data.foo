@@ -1,0 +1,11 @@
+block
+    der Hund
+    block 
+      block
+        der Hund
+      endblock
+      die Katze
+
+    endblock
+
+endblock

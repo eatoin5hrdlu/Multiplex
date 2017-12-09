@@ -1,0 +1,46 @@
+#!/bin/sh
+#
+#   File    : src2latex
+#   Author  : Al
+#   SCCS    : @(#)91/06/06 src2tex      1.2
+#   Purpose : Convert pl files to tex files.  Uses src2tex.awk
+
+# Converts a source file to a tex file.  If the input file name
+# has extension .c or .pl, the extension is replaced with .tex
+# to produce the output file name.  Otherwise, a .tex is added
+# to the file name.  Also see comments at top of src2tex.awk
+
+tools_dir=.
+
+for f in $*
+do
+    if [ $# -gt 1 ]
+    then
+        echo $f 1>&2
+    fi
+    case $f in
+        *.c )
+            outfile=`expr $f : '\(.*\)\.c$'`.tex
+            ;;
+        *.pl )
+            outfile=`expr $f : '\(.*\)\.pl$'`.tex
+            ;;
+        *.spec )
+            outfile=`expr $f : '\(.*\)\.spec$'`.tex
+            ;;
+        * )
+            outfile=${f}.tex
+            ;;
+    esac
+
+    rm -f $outfile
+
+    if awk -f $tools_dir/src2latex.awk $* > $outfile
+    then
+        true
+    else
+        tail -1 $outfile
+        exit 1
+    fi
+done
+

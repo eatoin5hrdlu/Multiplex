@@ -1,0 +1,12 @@
+module vfulladder(vina, vinb, vcin, vcout, vsum);
+   input vina, vinb, vcin;
+  output vcout, vsum;
+  wire vs1,vs2,vs3;
+
+   assign 
+     vs1 = vina ^ vinb,
+     vsum =  vs1 ^ vcin,
+     vs2 =  vcin & vs1,
+    vs3 = vina & vinb,
+    vcout = vs2 | vs3;
+endmodule

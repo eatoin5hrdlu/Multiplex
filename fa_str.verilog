@@ -1,0 +1,11 @@
+module vfulladder(vina, vinb, vcin, vcout, vsum);
+   input vina, vinb, vcin;
+  output vcout, vsum;
+   wire vs1,vs2,vs3;
+  
+ xor x1 (vina,vinb, vs1),
+     x2 (vs1, vcin, vsum);
+ and a1 (vcin, vs1, vs2),
+     a2 (vina, vinb, vs3);
+ or  or1 (vs2,vs3,vcout);
+endmodule

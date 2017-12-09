@@ -1,0 +1,1107 @@
+\documentstyle[11pt]{book}
+\hfuzz 10.0pt
+\begin{document}
+\chapter{MULTI/PLEX}
+
+\section{Introduction}
+This document describes MULTI/PLEX, a software component
+for automatically constructing parsers and generators from 
+a single high-level BNF language specification.
+This allows the rapid development of 
+translators and front- and back-ends for CAD tools.
+PLEX, a lexical analyzer generator for Prolog is a
+subsystem of MULTI/PLEX.
+
+MULTI/PLEX frees the translator developer to concentrate
+on the issues of semantic equivalence by automating
+the construction of tokenizers, parsers, and printers
+and manages the common data structures.
+These tasks are accomplished by dynamically transforming
+language specifications into Prolog programs and
+executing them. Unlike previous compiler-compilers MULTI/PLEX
+does not require intermediate compilation steps. 
+New parsers and generators can be constructed and executed
+at runtime from user modifiable language specifications.
+
+Many engineering specification and data languages
+have been created in recent years.
+Such proliferation is probably a necessary characteristic
+of such a fertile period of advancing technology,
+but it requires a massive software development effort
+to build the necessary translators.  The magnitude of
+this effort goes largely unnoticed because it is
+considered to be a minor part of a CAD
+environment. While each individual
+translator may not seem important, the number of 
+such translators is quite large. There are
+several reasons why CAD software organizations
+have not taken a general approach to this problem:
+
+\begin{itemize}
+
+\item{}
+A general translation capability would make it
+easy for customers to defect to other tool sets.
+
+\item{}
+It is cheaper in the short term to create only
+the specific translator needed at the moment.
+
+\item{}
+A widely varying range of quality is required from these
+translators. In some cases, a simple hack which works only
+on certain data files may be sufficient.
+
+\item{}
+Usually only one direction of translation is needed
+for a given pair of languages.
+
+\end{itemize}
+
+Previous work has shown that Prolog is a good language
+for developing multi-lingual translators [Reintjes87].
+Unfortunately, adding a new language in this previous
+translation system required work by an experienced Prolog
+programmer.  Even the relatively simple task of writing an
+efficient tokenizer requires the programmer to consider
+such issues as indexing, determinism, the efficiency of
+arithmetic tests and non-backtrackable I/O.
+The lack of widespread literacy in logic programming
+means that few programmers are available to work
+on such systems. This system both acknowledges this
+lack of literacy and works toward eliminating it.
+
+While this translator does not require its
+users to become proficient in Prolog, it
+does give them a logical language
+in which to specify the information about the
+languages to be translated.  This specification
+language is a superset of Prolog in the
+same way that YACC and LEX are supersets of C.
+That is, most of the difficult aspects of lexical
+and syntax analysis are handled at a high level, 
+but the native language, in this case Prolog,
+is available for general programming.
+
+While MULTIPLEX can streamline the process of building
+tokenizers, parsers, and generators in Prolog, the
+architecture of this program was only partially
+motivated by software engineering considerations.
+We are also fulfilling a legal requirement by
+decoupling the language description from the body
+of the translation system. This program was developed
+to translate circuit synthesis library models from
+one vendor to another.  Unfortunately, each of these
+vendors consider the syntactic details of their
+language to be proprietary information.
+Thus, if our translation program contained
+specific information about these languages,
+we could not distribute the program without
+a myriad of licensing (and presumably, royalty) agreements.
+In short, for legal purposes, the translation program
+cannot embody any specific information about the languages
+it is to translate.  Stated bluntly, this might
+be enough to discourage anyone from undertaking such a project.
+However, this restriction provided the needed
+motivation to design MULTIPLEX as a kind of
+``translation synthesizer''.
+
+Therefore, not only are there not be enough Prolog programmers
+to produce front- and back-ends for all of the necessary
+languages, but it would literally be against the law to
+sell a translator that was so constructed.  Once we had the
+requirement that the language-specific information
+be external to the program, this led naturally
+toward efforts to make these specifications as concise
+and simple as possible.
+
+Figure 1 shows how MULTIPLEX performs a translation
+by using the information in language specification
+files.
+
+\def\boxone#1{
+  \put(19,30){\line(1,0){67}}     % horiz top
+  \put(19,0){\line(1,0){67}}      % horiz bottom
+  \put(20,0){\line(0,1){30}}      % vert left
+  \put(85,0){\line(0,1){30}}      % vert right
+  \put(25,15){#1}
+}
+\def\boxtwo#1#2{
+  \put(19,30){\line(1,0){80}}     % horiz top
+  \put(19,0){\line(1,0){80}}      % horiz bottom
+  \put(20,0){\line(0,1){30}}      % vert left
+  \put(98,0){\line(0,1){30}}      % vert right
+  \put(25,17){#1}
+  \put(25,7){#2}
+}
+\def\circleone#1#2{\circle{#1}\put(-17,-4){#2}}
+\def\circletwo#1#2#3{\circle{#1}\put(-17,0){#2}\put(-15,20){#3}}
+
+\picture(200,150)(-70,0)
+
+\put(90,90){\vector(0,-1){15}}
+\put(90,30){\vector(0,1){15}}
+
+\put(20,60){\vector(1,0){30}}
+\put(130,60){\vector(1,0){30}}
+\linethickness{2pt}
+\put(0,60){\circleone{40}{Data A}}
+\put(30,90){\boxtwo{\ Spec File}{\ Language A}}
+\put(30,45){\boxtwo{MULTIPLEX}{\ \ Translator}}
+\put(30,0){\boxtwo{\ Spec File}{\ Language B}}
+
+\put(180,60){\circleone{40}{Data B}}
+
+\endpicture
+\vskip 1.0cm
+\centerline{\bf Figure 1. MULTIPLEX Translation Data Flow}
+\vskip 0.2cm
+
+\subsection{MULTIPLEX BNF}
+
+We refer to the MULTIPLEX specification language as BNF
+because of its similarity with this standard form.
+Prolog DCG's and YACC syntax are characterized
+by the way they hide the list of tokens being parsed.
+We go one step further and hide the parse-tree as well,
+thus making our language a purer form of syntax
+for which the Backus-Naur (nee Normal) Form has
+become a standard notation.  We stray from pure BNF
+with a single built-in goal which relates
+the information in the syntax to the ``hidden'' parse-tree
+(actually, there are many other built-in functions that
+the user can employ, such as those for syntax errors, to
+stray ever farther from pure BNF).
+
+A MULTIPLEX specification consists of one or more lexical
+specifications (called lexicons) which look suspiciously
+like rules for the UNIX LEX utility [Lesk75]. The primary
+difference is that the actions are written in
+Prolog rather than ``C''.  We allow multiple lexicons
+because of the multi-level nature of many languages
+(discussed in section 4.3) and also because a single grammar
+might cover data from a number of
+different files, each with different lexical conventions.
+
+The lexical specification is followed by the grammar
+rules which take the form of BNF with special calls
+which relate the data in the language to an internal structure.
+These calls will either insert or
+extract information from the underlying data structure
+depending upon whether the grammar is being used to parse
+or generate a description.
+
+Because we wish to parse and generate languages from a single
+specification, cuts and if-then-else structures are noticeably absent.
+
+\subsection{Comparison with LEX, YACC and AWK}
+
+LEX, YACC, and AWK are three of the primary language processing
+tools associated with UNIX systems. LEX and YACC are universally
+used for building front-ends for complex language processing
+programs, such as compilers, while AWK is frequently
+used for simple translation and filtering tasks.
+
+AWK is usually described as a user-programmable filter and 
+LEX and YACC as tools to build compilers. But filters and
+compilers simply define two ends of the spectrum of translators.
+Even GREP can described as a translator which converts a
+file containing
+general patterns of text, to a specific subset of that file.
+In this spectrum of functionality from simple filters to
+compilers these programs perform many of the same tasks.
+AWK, with its fixed lexical analyzer, might 
+be thought of as less powerful than tools
+built with LEX and YACC.
+At the same time it is more convenient to use because it
+eliminates the intermediate compilation steps.
+
+MULTIPLEX implements the general aspects of LEX and YACC
+while having the dynamic characteristics of AWK.  In addition,
+its YACC-like grammar definition specifies a generator (or 
+pretty-printer) for each language as well as a parser.
+It thus improves upon its predecessors in the following ways:
+
+\begin{itemize}
+\item{}
+It eliminates intermediate file and compilation steps by
+providing an end-user language which specifies
+and drives the translation task.
+\item{}
+Lexical and grammatical information are combined
+in a single specification.
+\item{}
+It constructs generators as well as parsers from
+the grammatical specifications.
+\item{}
+It allows any number of lexical analyzers and parsers to
+coexist in a single application.
+\end{itemize}
+
+\section{The MULTIPLEX Program}
+
+The specification file contains the information necessary
+to read data in a specific format.
+The definitions in this file can express all of the
+ways in which such library models might be different.
+
+The translation system itself provides a simple
+data structure which serves as a repository for the
+information which is common to these languages. Because
+we are dealing with Hardware Description languages,
+this includes the general concepts of delay constraints,
+combinatorial, and sequential machine descriptions.
+
+The specification file and the MULTI/PLEX program thus
+interact on three fronts. First, lexical definitons
+in the specification file define the tokenizers to
+scan the input data file. Second, the BNF-style
+grammar rules in the specification define the
+file access and grammatical structure of the data
+and relate this to the internal data structure.
+
+More detail on PLEX, the lexical analyzer generator
+can be found in the PLEX documentation.
+
+\subsection{The BNF Grammar Rules}
+
+The user writes MULTI/PLEX grammar rules to 
+define the language and relate the
+data objects to generic data-types which will be
+common to all such inter-translatable languages.
+
+These grammar rules frequently contain calls to 
+MULTIPLEX built-in functions. In addition to
+{\tt update//1} which accesses the internal
+data structure, we have hierarchy management
+commands {\tt up//0} and {\tt down//1} and the
+formatting commands: {\tt newline//0}, {\tt indent//0},
+and {\tt undent//0}. A built-in programmable expression
+parser ({\tt expression//1}) is also built into MULTIPLEX.
+
+An example set of grammar rules is given below:
+\begin{verbatim}
+lang_file  ::= file(name.xyz,xyz), cell.
+
+cell ::= down(Name),
+          cell(Name),
+         up.
+
+cell(Name) ::= [ Type ], [ '(' ], arguments(Params), [')'],
+               [ begin,  Name ],
+                 statements,
+               [ end ], optional([Name]), [';'],
+               update(cell_info(Type,Params)).
+
+statements ::= value_attribute, statements.
+statements ::= cell,            statements.
+statements ::= [].
+
+value_attribute ::= [ Type, :, Name ], value(V), [ ';' ],
+                    update(value_attribute(Type,Name,V)).
+
+value(Vs) ::= [ '(' ], arguments(Vs).
+value(V)  ::= [ V ].
+
+arguments([])     ::= [')'].
+arguments(V)      ::= [V, ')'].
+arguments([V|Vs]) ::= [V], more_values(Vs).
+\end{verbatim}
+
+\section{Using MULTIPLEX to Build Translators}
+
+This section describes how to use MULTIPLEX,
+a program which automatically
+constructs and then executes simple translators from
+a declarative specification of the languages involved.
+It automates the construction of
+tokenizers and parsers and provides management
+of common data structures, freeing the user to
+concentrate on the issues of semantic equivalence.
+This is accomplished by dynamically transforming
+language specifications into Prolog programs and
+executing them. Unlike most other language processing
+tools, this program does not require intermediate
+compilation steps.
+
+The MULTIPLEX system is a highly flexible tool which
+can be used in three distinct ways. It can be used
+directly as a simple translator, it can be used
+analogously to LEX [Lesk75] and YACC [Johnson78]
+to generate Prolog source
+code for lexical analyzers, parsers, and pretty-printers,
+or it can be used as a subroutine library in building
+complex translators or compilers which have
+dynamic language handling capabilities. A dynamic
+language handling tool is one which does not require
+compilation steps.  Thus AWK is an example of a
+dynamic tool whereas LEX and YACC are not.
+
+\subsection{MULTIPLEX as a translator}
+
+As a stand-alone program, MULTIPLEX will create parsers
+and generators from a pair of language specifications
+and then translate a data file from one language to the 
+other.  The parsers and generators communicate by accessing
+the internal database with the same interface.
+When parsing, the {\tt update//1} predicate is used to store
+information into the common data structure. When printing, it
+is used to retrieve information which then drives 
+the ``reverse-grammar'' which generates the textual form
+of a language. The primary difference between the parser and
+generator is {\it when} they call {\tt update//1}.
+
+The generator calls {\tt update//1} first to see if there is
+any data to drive the grammar rule describing the output text
+while the parser calls {\tt update//1} only after it has successfully
+parsed a grammatical structure and wishes to save the information.
+
+The command-line to perform a translation between EDIF
+and Synopsys format would be:
+\begin{verbatim}
+         %  multiplex  source.edif  target.syn
+\end{verbatim}
+This use of MULTIPLEX assumes the existence of
+{\tt edif.spec} and {\tt syn.spec} containing
+declarative descriptions of these two languages.
+Most importantly, it assumes these descriptions are compatible in
+the sense that all references to the internal representation
+use common identifiers. In this way, information stored during the
+parsing of EDIF can be looked-up during the Synopsys generation.
+
+As an example of this, consider files describing
+the German and Spanish languages. For a translation to succeed
+these definitions must have a common identifier for identifying
+an element of data. While each of the languages contain
+the notion of gender, it is unnecessary to store this information
+in the database. In fact, we specifically exclude this
+information from the database because gender is a
+property of a language, and is generally not an important
+part of the underlying information.  For example, because ``cat''
+is feminine in german and masculine in spanish, preserving the
+gender would result in an incorrect translation.
+
+The specifications for German and Spanish which will
+correctly translate {\it die Katze} to {\it el gato}
+are given below.
+
+\begin{figure}[htb]
+\begin{verbatim}
+german lexicon
+"[A-Za-z]+"   is Wort  if  (text(T),name(Wort,T)) ;
+"[ ,\t\n]"    is R     if  switch(german,R).
+
+german ::= 
+    file('name.german',german),
+    subjekt, beliebige_subjekte.
+
+beliebige_subjekte ::= subjekt, beliebige_subjekte.
+beliebige_subjekte ::= [].
+
+subjekt ::= artikel(Gender), hauptwort(N,Gender),
+            update(subject(N)).
+
+hauptwort(dog, maennlich) ::= [ 'Hund' ].
+hauptwort(cat, weiblich) ::= [ 'Katze' ].
+
+artikel(mannlich)  ::= [ der ].
+artikel(weiblich)  ::= [ die ].
+artikel(saechlich) ::= [ das ].
+\end{verbatim}
+\caption{MULTI/PLEX Grammar for German}
+\end{figure}
+
+\begin{figure}[htb]
+\begin{verbatim}
+spanish lexicon
+"[a-z]+"    is Palabra if   (text(T), name(Palabra,T));
+"[ ,\t\n]"  is R       if   switch(spanish,R).
+
+spanish ::= 
+    file('name.sp',spanish),
+    sujeto, sujetivos_opcionales.
+
+sujecto ::= articulo(Gender), nombre(N,Gender),
+            update(subject(N)).
+
+sujetivos_opcionales ::= sujeto, sujetivos_opcionales.
+sujetivos_opcionales ::= [].
+
+nombre(dog, masculino) ::= [ perro ].
+nombre(cat, masculino) ::= [ gato ].
+
+articulo(masculino) ::= [ el ].
+articulo(feminino)  ::= [ la ].
+\end{verbatim}
+\caption{MULTI/PLEX Specification for Spanish}
+\end{figure}
+
+In this case, the corresponding English words
+(subject, dog and cat) are the common identifiers.
+Note that keywords (e.g., {\tt subject}) as well
+as the data ({\tt cat, dog}) must be compatible between languages.
+
+This simple model works best when the languages
+represent identical levels of detail and have 
+corresponding statements and sub-elements. However,
+we cannot expect translation to consist of
+a one-for-one rewriting of statements.
+In general, a translation also requires
+computation (cf. [Tofte90]). Because the specification
+language is Prolog, general predicates can be included
+in the language specification and executed as part of
+the parser or generator.
+
+A more general feature to reconcile differences between
+the structure of input and output languages was developed
+in [Reintjes87] and this is also available within MULTIPLEX.
+
+\subsection{MULTIPLEX as a compiler-compiler}
+
+For a translation between two highly complex or widely
+differing languages, a programmer will need more
+control over the translation process. Because multiplex
+always creates a tokenizer, parser, and generator for each
+language it uses, we can ask multiplex simply to print
+the source code for these modules. Then the user
+can compile these modules into a specialized program
+of his or her own design.
+
+MULTIPLEX can be asked to perform like LEX, YACC, or
+a previously undefined program which produces pretty-printers.
+In other words, to produce source code defining tokenizer,
+parser, or pretty-printer subroutines.
+MULTIPLEX can be used in the following ways.
+\begin{itemize}
+\item{\bf multiplex -lex xyz}
+
+Generates a lexical analyzer from the description in {\tt xyz.spec}.
+This lexical analyzer will be written into the file {\tt xyz\_lex.pl}.
+\item{\bf multiplex -parser xyz}
+
+Produces a parser for the language described in {\tt xyz.spec}. This
+file will be named {\tt xyz\_parse.pl} and will contain
+predicates in a module named {\tt xyz\_parse}.
+\item{\bf multiplex -printer xyz}
+
+Creates a printer for the language described in {\tt xyz.spec}.
+This file will be named {\tt xyz\_print.pl} and will contain
+predicates in a module named {\tt xyz\_print}.
+\item{\bf multiplex -all xyz}
+
+Produces all three of the above files simultaneously.
+\end{itemize}
+
+To understand the relationship between these first two
+uses of MULTIPLEX, imagine that we want to produce a specialized
+translator which can read only EDIF and produce descriptions
+in only Synopsys format. We may wish to deliver a tool with this
+diminished capability for any number of reasons. For example:
+\begin{enumerate}
+\item{}
+We do not want the customer to have a general translation capability.
+\item{}
+We do not want to require the user to have the language specification
+files loaded on the system (remember that MULTIPLEX must open
+and read the files {\tt edif.spec} and {\tt syn.spec}).
+\item{}
+We do not want the user to have access to the language specification
+files because they contain proprietary information.
+\item{}
+We do not want the translator to spend the start-up time reading
+the language descriptions. Because we know which languages
+will be required, we want them pre-loaded. Furthermore, we
+know that this particular translator (EDIF $\rightarrow$ Synopsys) will
+not require a pretty-printer for EDIF or a parser for Synopsys.
+\item{}
+We gain a performance advantage by pre-compiling the
+language handling modules.
+\end{enumerate}
+
+\subsection{Using MULTIPLEX to build Higher-Order tools}
+
+We might describe MULTIPLEX as a high-order tool because
+it performs operations on a language defined at runtime.
+Similar tools, more complex than mere translators,
+can be built by using MULTIPLEX as a starting point.
+
+A user-defined program which uses MULTIPLEX in this way
+can be defined as follows:
+\begin{verbatim}
+:- use_module(library(multiplex)).
+
+runtime_entry(start) :-
+     unix(argv(Args)),
+     multiplex_set_options(Args, Rest),
+     my_set_options(Rest, InFile, OutFile),
+     multiplex_input(InFile, Data),
+     my_algorithm(Data, ProcessedData),
+     multiplex_output(OutFile, ProcessedData).
+\end{verbatim}
+The user can define {\tt my\_set\_options/2} and {\tt my\_algorithm/2}
+and depend upon MULTIPLEX to construct and execute the
+parser and printer. The predicates {\tt multiplex\_input/2}
+and {\tt multiplex\_output/2} construct and then call
+the parser/generator code. The user can direct MULTIPLEX
+to build the parser/generator (without executing it)
+by calling {\tt multiplex\_build/1} with the name of the
+language. Once a language has been loaded in this fashion
+it will not be re-loaded subsequent calls to {\tt multiplex\_build/1}
+or {\tt multiplex\_input(output)/2}.
+
+A more complex translator, which does ``feature mapping''
+between structurally diverse languages,
+can be built by using MULTIPLEX as a {\it module}
+and specifying a transformation function which will turn
+the input parse-tree into the necessary output parse-tree.
+The {\it parse-tree} is simply a list containing either
+the primitive data elements {\tt ID:Type:Value} or the
+hierarchical objects {\tt subcell(ID,ListofObjects)}.
+
+\begin{verbatim}
+:- use_module(library(multi)).
+:- use_module(library(strings),      [concat_atom/2]).
+
+runtime_entry(start) :-
+     unix(argv(Args)),
+     multiplex_set_options(Args, [In, Out]),
+     multiplex_suffix(In, _, InLang),
+     multiplex_input(In, Data),
+     multiplex_suffix(Out,_,OutLang),
+     transform(InLang, OutLang, Data, TData),
+     multiplex_output(Out, TData).
+
+runtime_entry(start) :-
+    format('Usage: translate ~a ~a ~a~n',
+          [ '[-Cv]','input.lang1', 'output.lang2' ]).
+\end{verbatim}
+
+\begin{verbatim}
+transform(In, Out) -->
+   compatible(hierarchy_model, In, Out),
+   compatible(timing_model,    In, Out),
+   compatible(naming_model,    In, Out).
+\end{verbatim}
+
+The first subgoal in {\tt transform//2} simply
+reverses the parse-tree. This needs to be done even
+if the input language is identical to the output
+language because we built the parse tree back-to-front.
+
+\begin{verbatim}
+compatible(_, X, X, D, D) :- !.
+
+compatible(Relation, In, Out, DIn, DOut) :-
+     Test1 =.. [Relation,  In, R1],
+     Test2 =.. [Relation, Out, R2],
+     call(Test1),
+     call(Test2),
+     ( R1 == R2 -> DIn = DOut
+     ; reconcile_by(R1, R2, Function),
+       Transform =.. [Function, DIn, DOut],
+       ( call(Transform) -> true
+       ; message_hook('transform error'(Function,In,Out),_,_)
+       )
+     ).
+\end{verbatim}
+
+The first clause of {\tt compatible/5} states that a language
+is always compatible with itself.  This corresponds to 
+the use of this tool as a syntax checker, back-annotation tool,
+or pretty-printer.
+
+The next clause determines if a particular feature
+is shared by these (different) languages or
+if there is a reconciliation function which will make
+the input structure compatible with the output structure.
+
+We can add a wealth of information to this translator
+by including facts about different language features
+and ways to reconcile {\it differences between these features}
+(in contrast to the total differences between the languages).
+These facts and functions can be built into the
+translator or brought in as part of the language 
+specification files. This organization is similar to the
+one developed earlier for the AUNT translator [Reintjes87].
+
+\begin{verbatim}
+hierarchy_model(syn,    one_level).
+hierarchy_model(fpdl,   one_level).
+hierarchy_model(spice,       flat).
+hierarchy_model(edif, multi_level).
+\end{verbatim}
+
+\begin{verbatim}
+naming_model(_, normal).
+\end{verbatim}
+
+
+\begin{verbatim}
+timing_model(syn,         clock).
+timing_model(fpdl,         clock).
+timing_model(foresight,    fixed).
+timing_model(vhdl,         delta).
+timing_model(dsl,     zero_delay).
+\end{verbatim}
+
+
+\begin{verbatim}
+reconcile_by(multi_level, one_level,     flatten1).
+reconcile_by(multi_level,      flat,      flatten).
+reconcile_by(synopsys,   zero_delay, remove_delay).
+reconcile_by(zero_delay,  synopsys,  insert_delay).
+\end{verbatim}
+
+\section{The MULTIPLEX Program}
+
+The specification file contains the information necessary
+to read data in a specific format.
+The definitions in this file can express all of the
+ways in which such library models might be different.
+
+The translation system itself provides a simple
+data structure which serves as a repository for the
+information which is common to these languages. Because
+we are dealing with Hardware Description languages,
+this includes the general concepts of delay constraints,
+combinatorial, and sequential machine descriptions.
+
+The specification file and the MULTI/PLEX program thus
+interact on three fronts. First, lexical definitons
+in the specification file define the tokenizers to
+scan the input data file. Second, the BNF-style
+grammar rules in the specification define the
+file access and grammatical structure of the data
+and relate this to the internal data structure.
+
+More detail on PLEX, the lexical analyzer generator
+can be found in the PLEX documentation.
+
+\subsection{The BNF Grammar Rules}
+
+The user writes MULTI/PLEX grammar rules to 
+define the language and relate the
+data objects to generic data-types which will be
+common to all such inter-translatable languages.
+
+These grammar rules frequently contain calls to 
+MULTIPLEX built-in functions. In addition to
+{\tt update//1} which accesses the internal
+data structure, we have hierarchy management
+commands {\tt up//0} and {\tt down//1} and the
+formatting commands: {\tt newline//0}, {\tt indent//0},
+and {\tt undent//0}. A built-in programmable expression
+parser ({\tt expression//1}) is also built into MULTIPLEX.
+
+An example set of grammar rules is given below:
+\begin{verbatim}
+lang_file  ::= file(name.xyz,xyz), cell.
+
+cell ::= down(Subcell),
+          cell(Name),
+         up,
+         update(subcell(Name, cell, Subcell).
+
+cell(Name) ::= [ Type ], [ '(' ], arguments(Params), [')'],
+               [ begin,  Name ],
+                 statements,
+               [ end ], optional([Name]), [';'],
+               update(cell_info(Type,Name,Params)).
+
+statements ::= value_attribute, statements(Data).
+statements ::= cell,            statements(Data).
+statements ::= [].
+
+value_attribute ::= [ Type, :, Name ], value(V), [ ';' ],
+                    update(value_attribute(Type,Name,V)).
+
+value(Vs) ::= [ '(' ], arguments(Vs).
+value(V)  ::= [ V ].
+
+arguments([])     ::= [')'].
+arguments(V)      ::= [V, ')'].
+arguments([V|Vs]) ::= [V], more_values(Vs).
+\end{verbatim}
+
+As an example of these grammar transformations
+the {\tt more\_values//1} rule is split into
+predictive parser and text generator versions,
+both of which are completely deterministic.
+
+\begin{verbatim}
+in_more_values(Vs) --> [X], in_more_values1(X,Vs).
+
+in_more_values1(',',[V|Vs]) --> [V], in_more_values(Vs).
+in_more_values1(')',[])     --> [].
+\end{verbatim}
+
+\begin{verbatim}
+out_more_values([])     --> ")".
+out_more_values([V|Vs]) --> [0',|Cs],
+                            { my_name(V,Cs) },
+                            out_more_values(Vs).
+\end{verbatim}
+
+\subsection{Internal Data Representation}
+The {\tt update(s)//1} routines in the grammar specification
+are used to insert or extract specific bits in the
+data structure representing the file to be translated.
+Because we do not want to distinguish between lookup and
+and assignment, we have a dictionary similar to that
+described by [Warren80].
+
+This data structure can contain primitive or
+hierarchical data elements.
+A primitive data element is any Prolog term, 
+while a hierarchical data-type is usually
+a term like {\tt subcell(Name, Type, Children)}
+Where {\tt Children} is also the argument to a
+{\tt down/1} call which moves the grammar down
+into a lower-level of hierarchy.
+The hierarchical capabilities of this generalized ``dictionary''
+function allows the user to manage complex ``scoping''
+information along with the basic data elements, all
+without requiring direct manipulations of the Prolog structures.
+
+The ``built-ins'' to support this access are
+{\tt update(s)//1},  {\tt seq\_update(s)/1}, and {\tt examine(s)//1}.
+
+The latter being an example of non-intrusive access
+-- e.g one that doesn't remove the data element during
+printing. During parsing, {\tt examine//1} acts
+the same as {\tt update//1}.
+
+This data structure is currently a simple list of 
+whatever terms are defined by the user. This document 
+provides some guidelines for selecting these structures.
+By using a standard methodology, we are more likely
+to create a set of compatible parser/generator components.
+
+For example, when using the hierarchy control non-terminals,
+we recommend using the term {\tt subcell(Name, Type, Subcell)}
+to store the subcells created by the hierachy commands.
+This use of hierarchy is demonstrated in the {\tt cell//0}
+rule in the grammar above.
+
+Like the normal expansion of DCGs, the term-expansion
+performed by MULTI/PLEX adds two arguments for the data-structure
+(the {\it parse-tree}, in traditional terms).
+By limiting access to this structure to a procedural
+interface, we ensure that we can transform a grammar
+into a generator. The {\tt update//1} access routines
+add information to this structure during parsing and
+extract the information during printing.
+
+In addition to adding the data arguments to all user-defined
+grammar rules, we will remove the special goals {\tt newline//0},
+{\tt indent//0}, and {\tt undent//0} from the parsing version and
+convert literals and tokens to character strings for the printing
+version. 
+The directives {\tt down/1} and {\tt up/0}
+create a hierarchical structure. Finally, we must delay
+the {\tt update//1} goals in the parser and advance
+them in the printer so that the data is inserted or
+extracted appropriately depending upon the intended
+direction of the grammar.
+
+This tool depends heavily on the module system. The
+principle advantage of this is that we can preserve the
+predicate names in the user's grammar while insuring that
+different grammars do not interfere with each other.
+This tool is designed to be a language ``multiplexer''
+with numerous parsers and generators active at one time.
+
+There are three parts to a grammar rule and the order
+of these three parts are different for parsers and printers.
+A parser rule consists of grammar terminals and non-terminals,
+followed by user code to process the data ({\tt user//1} goals),
+and finally data-base updates.
+In a printer, this order is reversed and we have data-base
+access routines first, then the user code, followed by
+the grammar terminals and non-terminals which actually
+produce the text.
+
+As an example, we give the following rule
+and its transformations.
+\begin{verbatim}
+% MULTI/PLEX BNF
+rule ::=  keyword(K), [:], value(V),
+          user(norm_value(V, NV)),
+          update(keyword(K,NV)).
+\end{verbatim}
+
+\begin{verbatim}
+% PARSER
+rule(D0, D, T0, T) :-
+         keyword(K,D0, D1, T0, T1),
+         D1 = [:|D2],
+         value(V,D2, D2, T1, T2),     % Parse tokens
+         { norm_value(V,NV) },        % Compute NV from V
+         update(keyword(K,NV),D2, D). % Add to data-base
+\end{verbatim}
+
+\begin{verbatim}
+% PRINTER
+rule(D0, D, Chs0, Chs) :- 
+      update(keyword(K,NV), D0, D), % Extract from data-base
+      { norm_value(V,NV) },         % Compute V from NV
+      keyword(K, D1, D2, Chs0, Chs1),
+      append(":",Chs2, Chs1), 
+      value(V, D2, D, Chs2, Chs).   % Produce Text
+\end{verbatim}
+
+The term-expansion produces the different goal orderings
+according to the following algorithm. To produce a parse-clause,
+it sweeps the user code toward the end of the clause body, 
+then sweeps the data base updates to the end of the clause,
+so they will be immediately after the {\tt user/1} goals. 
+
+To produce the print clause, it sweeps the {\tt user/1}
+goals to the front and then sweeps the data-base
+updates to be in front of them.
+
+\subsection{Data Management}
+
+The greatest difficulty in building a universal translator
+is to design the data structures and data management routines.
+We allow the person writing language specifications to use
+any representation they want for individual items.
+The system currently maintains these items in a list
+but this could be changed to improve efficiency without
+requiring changes to the language specifications.
+
+The {\tt update//1} goals manage the primary
+data structure representing the information being translated.
+The bi-directionality of this data structure makes it
+similar to the compiler dictionary described by [Warren80].
+
+\section{Advanced Features}
+
+The next two sections describe MULTIPLEX facilities for
+handling multi-level languages, tokenizing input files,
+and the related facilities for general expression parsing.
+
+\subsection{File I/O: The Tokenizer and Printer}
+Calls to tokenizers are made from the {\tt file//2} goals
+in the grammar. When the user specifies a file name and
+a lexicon, the file is tokenized by that tokenizer before
+being passed to the parser.  By allowing file specification
+and tokenizers to be part of the grammar, a grammar spanning
+many files and many different lexicons can be defined.
+
+Tokenizing the file includes optional macro-preprocessing,
+for example, in ``C'' or Verilog. If the language specification
+contains no ``macro'' definitions, {\tt process\_macros/3}
+simply returns the token-list.
+The corresponding predicate in the printer sends the
+output to the specified file {\it after} the
+textual form of the language has been produced by the grammar.
+
+\subsection{Parsing Multi-level Languages}
+
+Some languages achieve a superficial simplicity by embedding
+complex constructions inside quoted strings.
+We describe these as multi-level languages.
+Two examples are the {\it Foresight} language from NuThena
+and the synthesis library format of Synopsys.
+In the case of {\it Foresight}, its LISP syntax is undisturbed by
+the ADA-like {\it MINISPEC} language that lurks within.
+Similarly, the Synopsys language defines the
+boolean function of a cell with the following syntax:
+\begin{verbatim}
+      function: "a + b'c"
+\end{verbatim}
+The surface grammar of this statement is just:
+\begin{verbatim}
+      statement ::= [function, :, quote(double(S)),';'].
+\end{verbatim}
+With this rule, we can ``parse'' a Synopsys library
+without dealing with the complexities of this boolean expression.
+But at some point we will need to parse the expression
+within the string {\tt S}.
+Like the {\it MINISPEC} language in Foresight, there must be another
+part of the tool which interprets this string.
+Because many powerful languages are not multi-level
+(VHDL, Verilog) we want MULTIPLEX to span these levels
+transparently and derive the complete information of the
+language. This poses several problems.
+
+We cannot assume that the the same lexical rules
+apply to the embedded language. Thus, we need to specify
+which {\tt lexicon} to use. We
+introduce {\tt parse\_string//2} which has the form:
+\begin{verbatim}
+         parse_string(Lexicon, Rule)
+\end{verbatim}
+By including this in a grammar rule, we can interrupt
+the normal token stream, interpret the next token as
+a user-defined {\tt String} type containing a character
+string. We extract this character string, apply the
+tokenizer identified by {\tt Lexicon} and parse
+this token list with {\tt Rule}.  After
+this non-terminal is processed, the appropriate variables
+in {\tt Rule} (if any) will have the parsed structure and
+the original token list of the parent language will once
+again be in effect. To use this feature to analyze the
+{\tt function:} statement in a Synopsys library, we say:
+\begin{verbatim}
+      statement ::= [function, :],
+                    parse_string(syn, expression(F)), [';'].
+\end{verbatim}
+\subsection{Facilities for Expression Parsing}
+
+In two of the languages we've considered, embedded languages
+are used for the representation of boolean expressions.
+Synopsys, for example represents the function
+for a library cell:
+\begin{verbatim}
+          function: "(a + b')' ((c b)+a')(d+e')"
+\end{verbatim}
+This string contains a complex expression syntax
+with a postfix unary operator (') and an implicit binary
+operator which has stronger
+precedence than the {\tt +} operator.
+If the user can specify
+the precedence, fixity, and appearance of all operators,
+together with a rule for primary expressions,
+MULTIPLEX will correctly parse all
+expressions. This feature addresses two important 
+difficulties in language-based tool development.
+
+Documentation for many industrial languages
+frequently gives little or no guidance for
+implementing expression parsers. When such documents
+include BNF rules for expression syntax, the
+definitions are often left-recursive, and thus
+unsuitable for a recursive descent parser.
+For these reasons we do not want the language-spec writer
+to spend time defining complex rules for
+expressions. Because all expression parsers have similar
+features, different types of expressions can be distinguished
+by specifying a few facts about the language. For 
+a relatively simple language (FPDL) the specification is:
+\begin{verbatim}
+operator(200,xfy,  or) ::= ['|'].
+operator(300,xfy, and) ::= ['&'].
+operator(100, fx, not) ::= ['~'].
+
+primary(Expr)           ::=  ['('], expression(E), [')'].
+primary(V)              ::=  value(V).
+\end{verbatim}
+
+\centerline{\bf Figure 3: Example operator and primary expressions definition}
+
+\vskip 0.2cm
+With these definitions ({\tt value/1} is
+defined elsewhere in the user specification),
+a call to the MULTIPLEX built-in grammar rule {\tt expression(E)}
+will parse expressions like:
+\begin{verbatim}
+       A & 1 & ~B | ((A | B & C) & ~(A|B)& | 0)
+\end{verbatim}
+To define a language with function expressions
+in which the function arguments can also be expressions,
+we need write only:
+\begin{verbatim}
+primary(function(F,As)) ::= name(F), ['('], arguments(As).
+
+arguments([])     ::= [')'].
+arguments([A|As]) ::= expression(A), more_args(As).
+
+more_args([])     ::= [')'].
+more_args([A|As]) ::= [','], expression(A), more_args(As).
+\end{verbatim}
+The problems presented by the Synopsys language
+(the implicit AND operator, postfix and prefix NOT operator)
+are easily handled by this system.
+The following definitions will work:
+\begin{verbatim}
+operator(200,xfy,  or) ::= [+].
+operator(300,xfy, and) ::= [*].
+operator(300, xy, and) ::= [].
+operator(100, xf, not) ::= [''''].
+\end{verbatim}
+\centerline{\bf Figure 4: Operators for Logic Formula with Implicit AND}
+\vskip 0.2cm
+Note that the Synopsys language also contains an
+explicit AND operator (*) and so we include
+this rule before the "empty AND" rule. Internally,
+these are represented identically as {\tt expr(Left,and,Right)}
+and when the textual form of the language is being produced,
+the first rule is used causing the (*) operator
+to appear explicitly in all generated formula.
+
+The operator specifications in MULTIPLEX are similar
+to those in Prolog, even in the choice of the argument
+order for {\tt (Precedence, Fixity, Operator)}. The most
+important difference is the addition of the {\tt xy} fixity 
+specification defining the implied, or invisible, operator.
+Clearly, a language can have only one implied operator,
+such as AND in logical formula and multiplication in
+arithmetic formulas.
+
+\section{Future Work}
+
+We have created a language-independent translation
+system which can construct and execute specialized
+translators with no need for separate compilation steps.
+This program is used by DASIX/Intergraph
+to translate VLSI synthesis model libraries.
+Although this program was developed as a translator,
+it could be used as a front- and back-end
+of any tool to compile, analyze, and verify
+formal languages.
+
+The stand-alone program {\tt multiplex} functions
+as three separate tools to create tokenizers,
+parsers, or pretty-printers from language specifications.
+These tools, here embedded in the MULTIPLEX program, improve
+on their predecessors (LEX and YACC) in the following ways:
+\begin{itemize}
+\item{}
+Automatic generation of printers (text generators) complements
+the support for tokenizers and parsers.
+\item{}
+Any number of tokenizer/parser/generators can co-exist
+because of the unique naming of synthesized predicates.
+\item{}
+Intermediate compilation steps are eliminated -- the program proceeds
+immediately from reading the language spec to parsing the language.
+\end{itemize}
+
+The design of this program depended heavily on
+Prolog features such as user-defined term-expansion,
+grammar rule notation, and the ability to modify
+Prolog syntax through operator definitions.
+The program could not exist in its present
+form without Prolog's ability to manipulate code as data,
+and to do this immediately prior to execution.
+
+This project fulfilled the requirement that the
+language descriptions be ``externalized'',
+but much can be done to both simplify and extend
+the expressiveness of these descriptions.
+At present, the user must avoid left-recursive grammar
+rules and though
+rules may backtrack, they must be deterministic
+in the sense that they have only one solution if the
+{\tt -C} optimization is to be used.
+
+In the future we may find that complex languages
+require us to re-order clauses as well as goals
+to achieve complete bi-directionality. This would
+require a technique more general than term-expansion
+in order to operate on predicates rather than clauses.
+
+The program transformation techniques described here can
+provide non-expert programmers with special purpose
+languages which are easier to use than Prolog.
+Although these languages are less powerful than Prolog,
+they can greatly widen the audience for logic programming.
+
+The use of Prolog syntax for the external specification
+language simplifies the design of this tool and
+encourages us to consider the general use of Prolog as
+an embedded (user oriented) language in CAD systems.
+
+\end{document}
